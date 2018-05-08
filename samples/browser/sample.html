@@ -1,0 +1,300 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Speech Sample</title>
+    <meta charset="utf-8" />
+    <link rel="stylesheet" href="https://maxcdn.bootstrapcdn.com/bootstrap/3.3.7/css/bootstrap.min.css">
+    <link rel="stylesheet" href="main.css" />
+</head>
+<body style="font-family:'Helvetica Neue',Helvetica,Arial,sans-serif; font-size:13px;">
+    <div id="warning">
+        <h1 style="font-weight:500;">Speech Recognition SDK not found.</h1>
+        <h2 style="font-weight:500;">Please execute <code>npm run bundle</code> and reload.</h2>
+    </div>
+    <div id="content" style="display:none" class="container">
+        <table width="100%">
+            <tr>
+                <td></td>
+                <td>
+                    <h1 style="font-weight:500;">Speech Recognition</h1>
+                    <h2 style="font-weight:500;">Microsoft Cognitive Services</h2>
+                </td>
+            </tr>
+            <tr>
+                <td></td>
+                <td>
+                    <input type="file" id="filePicker" accept=".wav" style="display:none"/>
+                </td>
+            </tr>
+            <tr>
+                <td align="left"><span id="statusDiv"></span></td>
+            </tr>
+        </table>
+    </div>
+    <div class="container">
+    <div id="app">
+
+        <div class="col-md-2 userlist">
+            <div class="panel-heading">
+                <span class="glyphicon glyphicon-user"></span> Online ({{ connectedUsers.length }})
+            </div>
+            <ul class="chat">
+                <li v-for="user in connectedUsers">
+                    {{ user }}&nbsp;<span v-if="userIsTyping(user)" class="glyphicon glyphicon-pencil">..</span>
+                </li>
+
+
+            </ul>
+        </div>
+
+        <div class="col-md-10">
+            <div id="livechat-container">
+                <div class="panel panel-primary">
+                    <div class="panel-heading">
+                        <span class="glyphicon glyphicon-comment"></span>&nbsp;Lets Chat
+                    </div>
+                    <div class="panel-body">
+                        <ul class="chat" id="messages">
+                            <li v-for="message in messages" class="left clearfix">
+                                <div v-if="message.type == 'info'" class="info">
+                                    {{ message.msg }}
+                                </div>
+                                <div v-if="message.type == 'chat'">
+                                    <span class="chat-img pull-left">
+                            <img src="http://placehold.it/50/55C1E7/fff&text=U" alt="User Avatar" class="img-circle" />
+                        </span>
+                                    <div class="chat-body clearfix">
+                                        <div class="header">
+                                            <strong class="primary-font">{{ message.user }}</strong> <small class="pull-right text-muted">
+                                        <span class="glyphicon glyphicon-time"></span>&nbsp;{{ message.timestamp }}</small>
+                                        </div>
+                                        <p>
+                                            {{ message.text }}
+                                        </p>
+                                    </div>
+                                </div>
+                            </li>
+                        </ul>
+                    </div>
+
+                    <div class="panel-footer">
+                        <form @submit.prevent="send">
+                            <input v-model="message.text" v-on:keyup="usersAreTyping" v-on:keyup.13="stoppedTyping('13')" v-on:keyup.8="stoppedTyping('8')" type="text" class="form-control input-lg" placeholder="Type chat here" />
+                        </form>
+                        <div>
+                            <button type="button" class="btn btn-primary" v-bind:class="[startbtn ? disableClass : '']" v-on:click="StartRecord" >Start</button>
+                            <button type="button" class="btn btn-danger" v-bind:class="[stopbtn? disableClass: '']" v-on:click="StopRecord">Stop</button>
+                        </div>
+                    </div>
+                    
+
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+    <!-- SDK REFERENCE -->
+    <script src="../../distrib/speech.sdk.bundle.js"></script>
+
+    <!-- SDK USAGE -->
+    <script>
+        // On document load resolve the SDK dependency
+        
+        function Initialize(onComplete) {
+            if (!!window.SDK) {
+                document.getElementById('content').style.display = 'block';
+                document.getElementById('warning').style.display = 'none';
+                onComplete(window.SDK);
+            }
+        }
+        
+        // Setup the recognizer
+        function RecognizerSetup(SDK, recognitionMode, language, format, subscriptionKey) {
+            
+            switch (recognitionMode) {
+                case "Interactive" :
+                    recognitionMode = SDK.RecognitionMode.Interactive;    
+                    break;
+                case "Conversation" :
+                    recognitionMode = SDK.RecognitionMode.Conversation;    
+                    break;
+                case "Dictation" :
+                    recognitionMode = SDK.RecognitionMode.Dictation;    
+                    break;
+                default:
+                    recognitionMode = SDK.RecognitionMode.Interactive;
+            }
+
+            var recognizerConfig = new SDK.RecognizerConfig(
+                new SDK.SpeechConfig(
+                    new SDK.Context(
+                        new SDK.OS(navigator.userAgent, "Browser", null),
+                        new SDK.Device("SpeechSample", "SpeechSample", "1.0.00000"))),
+                recognitionMode,
+                language, // Supported languages are specific to each recognition mode. Refer to docs.
+                format); // SDK.SpeechResultFormat.Simple (Options - Simple/Detailed)
+
+
+            var useTokenAuth = false;
+            
+            var authentication = function() {
+                if (!useTokenAuth)
+                    return new SDK.CognitiveSubscriptionKeyAuthentication(subscriptionKey);
+
+                var callback = function() {
+                    var tokenDeferral = new SDK.Deferred();
+                    try {
+                        var xhr = new(XMLHttpRequest || ActiveXObject)('MSXML2.XMLHTTP.3.0');
+                        xhr.open('GET', '/token', 1);
+                        xhr.onload = function () {
+                            if (xhr.status === 200)  {
+                                tokenDeferral.Resolve(xhr.responseText);
+                            } else {
+                                tokenDeferral.Reject('Issue token request failed.');
+                            }
+                        };
+                        xhr.send();
+                    } catch (e) {
+                        window.console && console.log(e);
+                        tokenDeferral.Reject(e.message);
+                    }
+                    return tokenDeferral.Promise();
+                }
+
+                return new SDK.CognitiveTokenAuthentication(callback, callback);
+            }();
+            
+            var files = document.getElementById('filePicker').files;
+            if (!files.length) {
+                return SDK.CreateRecognizer(recognizerConfig, authentication);
+            } else {
+                return SDK.CreateRecognizerWithFileAudioSource(recognizerConfig, authentication, files[0]);
+            }
+        }
+
+        // Start the recognition
+        function RecognizerStart(SDK, recognizer) {
+            recognizer.Recognize((event) => {
+                /*
+                 Alternative syntax for typescript devs.
+                 if (event instanceof SDK.RecognitionTriggeredEvent)
+                */
+                switch (event.Name) {
+                    case "RecognitionTriggeredEvent" :
+                        UpdateStatus("Initializing");
+                        break;
+                    case "ListeningStartedEvent" :
+                        UpdateStatus("Listening");
+                        break;
+                    case "RecognitionStartedEvent" :
+                        UpdateStatus("Listening_Recognizing");
+                        break;
+                    case "SpeechStartDetectedEvent" :
+                        UpdateStatus("Listening_DetectedSpeech_Recognizing");
+                        console.log(JSON.stringify(event.Result)); // check console for other information in result
+                        break;
+                    case "SpeechHypothesisEvent" :
+                        UpdateRecognizedHypothesis(event.Result.Text, false);
+                        console.log(JSON.stringify(event.Result)); // check console for other information in result
+                        break;
+                    case "SpeechFragmentEvent" :
+                        UpdateRecognizedHypothesis(event.Result.Text, true);
+                        console.log(JSON.stringify(event.Result)); // check console for other information in result
+                        break;
+                    case "SpeechEndDetectedEvent" :
+                        OnSpeechEndDetected();
+                        UpdateStatus("Processing_Adding_Final_Touches");
+                        console.log(JSON.stringify(event.Result)); // check console for other information in result
+                        break;
+                    case "SpeechSimplePhraseEvent" :
+                        // console.log(event.Result.DisplayText);
+                        // console.log(event.Result.RecognitionStatus);
+                        event.Result.type = "chat";
+                        event.Result.user = socket.id;
+                        event.Result.timestamp = moment().calendar();
+                        socket.emit('chat.content', event.Result);
+                        UpdateRecognizedPhrase(JSON.stringify(event.Result, null, 3));
+                        break;
+                    case "SpeechDetailedPhraseEvent" :
+                        UpdateRecognizedPhrase(JSON.stringify(event.Result, null, 3));
+                        break;
+                    case "RecognitionEndedEvent" :
+                        OnComplete();
+                        UpdateStatus("Idle");
+                        console.log(JSON.stringify(event.Result)); // Debug information
+                        break;
+                    default:
+                        console.log(JSON.stringify(event)); // Debug information
+                }
+            })
+            .On(() => {
+                // The request succeeded. Nothing to do here.
+            },
+            (error) => {
+                console.error(error);
+            });
+        }
+
+        // Stop the Recognition.
+        function RecognizerStop(SDK, recognizer) {
+            // recognizer.AudioSource.Detach(audioNodeId) can be also used here. (audioNodeId is part of ListeningStartedEvent)
+            recognizer.AudioSource.TurnOff();
+        }
+    </script>
+
+    <!-- Browser Hooks -->
+    <script>
+        var statusDiv;
+        var filePicker;
+        var SDK;
+        var recognizer;
+
+        document.addEventListener("DOMContentLoaded", function () {
+            createBtn = document.getElementById("createBtn");
+            statusDiv = document.getElementById("statusDiv");
+
+
+            Initialize(function (speechSdk) {
+                SDK = speechSdk;
+            });
+        });
+
+        function Setup() {
+            if (recognizer != null) {
+                RecognizerStop(SDK, recognizer);
+            }
+            recognizer = RecognizerSetup(SDK, "Conversation", "en-US", SDK.SpeechResultFormat["Simple"], "PUT_YOUR_SUBSCRIPTION_KEY_HERE");
+        }
+
+        function UpdateStatus(status) {
+            statusDiv.innerHTML = status;
+        }
+
+        function UpdateRecognizedHypothesis(text, append) {
+            if (append){
+                //
+            }else{
+                //
+            }
+        }
+
+        function OnSpeechEndDetected() {
+        }
+
+        function UpdateRecognizedPhrase(json) {
+        }
+
+        function OnComplete() {
+        }
+        //You can use the function in the client.js file.
+        function printtest(){
+            console.log("test");
+        }
+    </script>
+    <script src="https://cdn.socket.io/socket.io-1.4.5.js"></script>
+    <script src="https://unpkg.com/vue/dist/vue.js"></script>
+    <script src="https://unpkg.com/axios/dist/axios.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/moment.js/2.17.1/moment.min.js"></script>
+    <script src="client.js"></script>
+</body>
+</html>
